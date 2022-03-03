@@ -260,10 +260,21 @@ class BaseImageAugmentationLayer(base_layer.BaseRandomLayer):
   mode, unpack the inputs, forward to the correct function, and pack the output
   back to the same structure as the inputs.
 
+  By default the `call()` method leverages the `tf.vectorized_map()` function.
+  Auto vectorization can be disabled by setting the `auto_vectorize=False`
+  attribute in your `__init__()` method.  When disabled, `call()` instead relies
+  on `tf.map_fn()`.  For example:
+
+  ```python
+  class SubclassLayer(BaseImageAugmentationLayer):
+    def __init__(self):
+      self.auto_vectorize = False
+  ```
+
   Example:
 
   ```python
-  class RandomContrast(BaseAugmentationLayer):
+  class RandomContrast(BaseImageAugmentationLayer):
 
     def __init__(self, factor=(0.5, 1.5), **kwargs):
       super().__init__(**kwargs)
@@ -272,7 +283,7 @@ class BaseImageAugmentationLayer(base_layer.BaseRandomLayer):
     def augment_image(self, image, transformation=None):
       random_factor = tf.random.uniform([], self._factor[0], self._factor[1])
       mean = tf.math.reduced_mean(inputs, axis=-1, keep_dim=True)
-      output = (inputs - mean) * random_factor + mean
+      return (inputs - mean) * random_factor + mean
   ```
 
   Note that since the randomness is also a common functionnality, this layer
@@ -284,6 +295,14 @@ class BaseImageAugmentationLayer(base_layer.BaseRandomLayer):
   def __init__(self, rate=1.0, seed=None, **kwargs):
     super().__init__(seed=seed, **kwargs)
     self.rate = rate
+    self.auto_vectorize = True
+
+  @property
+  def _map_fn(self):
+    if self.auto_vectorize:
+      return tf.vectorized_map
+    else:
+      return tf.map_fn
 
   @doc_controls.for_subclass_implementers
   def augment_image(self, image, transformation=None):
@@ -346,6 +365,7 @@ class BaseImageAugmentationLayer(base_layer.BaseRandomLayer):
   def call(self, inputs, training=True):
     if training:
       inputs = self._format_inputs(inputs)
+      inputs['images'] = tf.cast(inputs['images'], self.compute_dtype)
       images = inputs['images']
       if images.shape.rank == 3:
         return self._format_output(self._augment(inputs))
@@ -377,7 +397,7 @@ class BaseImageAugmentationLayer(base_layer.BaseRandomLayer):
     return result
 
   def _batch_augment(self, inputs):
-    return tf.map_fn(self._augment, inputs)
+    return self._map_fn(self._augment, inputs)
 
   def _format_inputs(self, inputs):
     if tf.is_tensor(inputs):
@@ -601,6 +621,7 @@ class RandomFlip(BaseImageAugmentationLayer):
       raise ValueError('RandomFlip layer {name} received an unknown mode '
                        'argument {arg}'.format(name=self.name, arg=mode))
     self.seed = seed
+    self.auto_vectorize = False
 
   def augment_image(self, image, transformation=None):
     flipped_outputs = image

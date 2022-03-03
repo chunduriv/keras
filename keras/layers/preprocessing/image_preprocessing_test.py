@@ -1895,6 +1895,13 @@ class BaseImageAugmentationLayerTest(test_combinations.TestCase):
 
     self.assertAllClose(image + 2.0, output)
 
+  def test_augment_casts_dtypes(self):
+    add_layer = RandomAddLayer(fixed_value=2.0)
+    images = tf.ones((2, 8, 8, 3), dtype='uint8')
+    output = add_layer(images)
+
+    self.assertAllClose(tf.ones((2, 8, 8, 3), dtype='float32') * 3.0, output)
+
   def test_augment_batch_images(self):
     add_layer = RandomAddLayer()
     images = np.random.random(size=(2, 8, 8, 3)).astype('float32')
